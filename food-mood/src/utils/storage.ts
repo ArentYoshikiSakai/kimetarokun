@@ -217,6 +217,17 @@ export const suggestionStorage = {
  */
 export const historyStorage = {
   /**
+   * セッションと提案を同時に保存する
+   */
+  saveSessionAndSuggestions: (session: UserSession, suggestions: FoodSuggestion[]): void => {
+    // セッションを保存
+    sessionStorage.saveSession(session);
+    
+    // 提案を保存
+    suggestionStorage.saveSuggestions(suggestions);
+  },
+
+  /**
    * 全ての履歴を取得する（セッションと提案をマージ）
    */
   getAllHistory: () => {
