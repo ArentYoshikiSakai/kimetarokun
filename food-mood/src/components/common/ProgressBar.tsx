@@ -7,7 +7,15 @@ export interface ProgressBarProps {
   /**
    * 進捗率（0〜100）
    */
-  percentage: number;
+  percentage?: number;
+  /**
+   * 現在の値
+   */
+  value?: number;
+  /**
+   * 最大値
+   */
+  max?: number;
   /**
    * コンポーネントの高さ（px）
    */
@@ -44,6 +52,8 @@ export interface ProgressBarProps {
  */
 export const ProgressBar: React.FC<ProgressBarProps> = ({
   percentage,
+  value,
+  max = 100,
   height = 8,
   color = 'primary',
   showPercentage = false,
@@ -52,8 +62,19 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   label,
   className = '',
 }) => {
-  // パーセンテージを0〜100の範囲に制限
-  const normalizedPercentage = Math.min(100, Math.max(0, percentage));
+  // パーセンテージを計算（value/maxか直接指定されたpercentageを使用）
+  let normalizedPercentage: number;
+  
+  if (percentage !== undefined) {
+    // 直接パーセンテージが指定されている場合
+    normalizedPercentage = Math.min(100, Math.max(0, percentage));
+  } else if (value !== undefined) {
+    // value/maxから計算する場合
+    normalizedPercentage = Math.min(100, Math.max(0, (value / max) * 100));
+  } else {
+    // どちらも指定されていない場合はデフォルト0
+    normalizedPercentage = 0;
+  }
   
   // カラーマッピング
   const colorClasses = {
@@ -75,7 +96,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
           {label && <span className="text-sm text-gray-600">{label}</span>}
           {showPercentage && textPosition === 'right' && (
             <span className="text-sm font-medium text-gray-700">
-              {normalizedPercentage}%
+              {Math.round(normalizedPercentage)}%
             </span>
           )}
         </div>
@@ -96,7 +117,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
           {/* 進捗率テキスト（テキスト位置がバー内部の場合） */}
           {showPercentage && textPosition === 'inside' && normalizedPercentage > 5 && (
             <span className="text-xs font-medium text-white px-1">
-              {normalizedPercentage}%
+              {Math.round(normalizedPercentage)}%
             </span>
           )}
         </div>

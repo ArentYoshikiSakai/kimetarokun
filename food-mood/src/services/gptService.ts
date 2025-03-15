@@ -1,24 +1,29 @@
 'use client';
 
 import { UserAnswer, FoodSuggestion } from '../types';
-import { OpenAI } from 'openai';
+import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
+import { Question } from '@/types/Question';
 
-// OpenAI APIクライアントの初期化
-// APIキーは環境変数から取得
-const createOpenAIClient = () => {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  
-  if (!apiKey) {
-    console.error('OpenAI API key is not set in environment variables');
-    throw new Error('OpenAI API key is not set');
-  }
-  
-  return new OpenAI({
-    apiKey,
-    dangerouslyAllowBrowser: true // クライアントサイドでのAPI呼び出しを許可（注：本番環境では推奨されません）
-  });
+// モックデータのみを使用するモード（開発中や課金制限時に使用）
+const useMockOnly = true;
+
+// レスポンスキャッシュ（同じリクエストに対して重複APIコールを防止）
+type CacheRecord = {
+  suggestions: FoodSuggestion[];
+  timestamp: number;
 };
+const responseCache: Record<string, CacheRecord> = {};
+const CACHE_TTL = 1000 * 60 * 60; // 1時間キャッシュを保持
+
+// APIキーの確認
+const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+if (!apiKey && !useMockOnly) {
+  console.warn('OpenAI API key is not set. Mock data will be used instead.');
+}
+
+// OpenAIクライアントの初期化（APIキーがある場合のみ）
+const openai = apiKey ? new OpenAI({ apiKey, dangerouslyAllowBrowser: true }) : null;
 
 // 質問IDとテキストのマッピング
 const questionIdToLabel: Record<string, string> = {
@@ -99,81 +104,254 @@ const parseResponse = (
 };
 
 /**
+ * リトライロジックをともなうAPIリクエスト
+ * レート制限（429エラー）発生時に、指数バックオフで再試行します
+ */
+const makeRequestWithRetry = async (
+  apiCall: () => Promise<any>,
+  maxRetries: number = 3,
+  initialBackoff: number = 2000
+): Promise<any> => {
+  let retries = 0;
+  let backoff = initialBackoff;
+
+  while (retries <= maxRetries) {
+    try {
+      return await apiCall();
+    } catch (error: any) {
+      // 429エラー (Too Many Requests) か確認
+      if (error?.status === 429 && retries < maxRetries) {
+        console.warn(`Rate limit exceeded. Retrying in ${backoff}ms... (${retries + 1}/${maxRetries})`);
+        // 指定時間待機
+        await new Promise(resolve => setTimeout(resolve, backoff));
+        // バックオフ時間を2倍に増加（指数バックオフ）
+        backoff *= 2;
+        retries++;
+      } else {
+        // その他のエラーまたは最大リトライ回数に達した場合
+        throw error;
+      }
+    }
+  }
+  
+  throw new Error('Maximum retry attempts reached');
+};
+
+/**
+ * ユーザー回答からキャッシュのキーを生成
+ */
+const generateCacheKey = (answers: UserAnswer[]): string => {
+  return answers
+    .map(a => `${a.questionId}:${a.selectedOptionId}`)
+    .sort()
+    .join('|');
+};
+
+/**
  * 食事提案を生成する
  */
-export const generateFoodSuggestions = async (
-  answers: UserAnswer[],
+export async function generateFoodSuggestions(
+  answers: Question[],
   sessionId: string
-): Promise<FoodSuggestion[]> => {
-  try {
-    // 回答がない場合は空の配列を返す
-    if (!answers.length) {
-      return [];
-    }
-    
-    // OpenAI APIクライアントを作成
-    const openai = createOpenAIClient();
-    
-    // プロンプトを生成
-    const prompt = generatePrompt(answers);
-    
-    // APIリクエストを送信
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo', // または最新の適切なモデル
-      messages: [
-        { role: 'system', content: 'あなたは日本語で応答する食事提案の専門家です。' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 1000
-    });
-    
-    // レスポンスを取得
-    const responseContent = completion.choices[0]?.message?.content || '';
-    
-    // レスポンスをパースして提案データに変換
-    return parseResponse(responseContent, sessionId);
-  } catch (error) {
-    console.error('Error generating food suggestions:', error);
-    // エラーが発生した場合は空の配列を返す
-    return [];
+): Promise<FoodSuggestion[]> {
+  // 回答がなければモックデータを返す
+  if (answers.length === 0) {
+    return generateMockSuggestions(answers, sessionId);
   }
-};
+
+  // モックデータのみのモードが有効な場合
+  if (useMockOnly || !apiKey || !openai) {
+    console.log('Using mock data (mock mode or no API key)');
+    return generateMockSuggestions(answers, sessionId);
+  }
+
+  // キャッシュキー生成
+  const cacheKey = generateCacheKey(answers);
+  
+  // キャッシュチェック
+  const cachedResult = responseCache[cacheKey];
+  if (cachedResult && Date.now() - cachedResult.timestamp < CACHE_TTL) {
+    console.log('Using cached result for this query');
+    return cachedResult.suggestions;
+  }
+
+  // プロンプトの準備
+  const prompt = generatePrompt(answers);
+  
+  // 最大リトライ回数
+  const MAX_RETRIES = 3;
+  let retryCount = 0;
+  
+  // リトライループ
+  while (retryCount < MAX_RETRIES) {
+    try {
+      console.log(`Attempt ${retryCount + 1} to generate suggestions`);
+      
+      // GPT APIを呼び出す
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'あなたは日本食の専門家です。ユーザーの好みや制限に基づいて、3つの食事提案を生成してください。'
+          },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+        response_format: { type: 'json_object' }
+      });
+
+      // レスポンスからテキストを取得
+      const responseText = completion.choices[0]?.message?.content || '';
+      
+      try {
+        // JSONをパースしてフードサジェスチョンに変換
+        const parsedResponse = JSON.parse(responseText);
+        const suggestions = parsedResponse.suggestions || [];
+        
+        // 有効な提案があることを確認
+        if (suggestions.length > 0) {
+          // 提案を正規化してIDとタイムスタンプを追加
+          const formattedSuggestions: FoodSuggestion[] = suggestions.map((suggestion: any) => ({
+            id: uuidv4(),
+            name: suggestion.name || '不明な料理',
+            description: suggestion.description || 'この料理の説明はありません。',
+            characteristics: suggestion.characteristics || [],
+            sessionId,
+            timestamp: new Date().toISOString()
+          }));
+
+          // キャッシュに保存
+          responseCache[cacheKey] = {
+            suggestions: formattedSuggestions,
+            timestamp: Date.now()
+          };
+          
+          return formattedSuggestions;
+        }
+      } catch (parseError) {
+        console.error('Error parsing API response:', parseError);
+      }
+      
+      // 成功レスポンスがない場合はリトライカウントを増やす
+      retryCount++;
+      
+    } catch (error: any) {
+      console.error('OpenAI API error:', error);
+      
+      // 429エラー（レートリミット）の場合は待機してリトライ
+      if (error.status === 429) {
+        retryCount++;
+        const waitTime = Math.pow(2, retryCount) * 1000; // 指数バックオフ
+        console.log(`Rate limited. Waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+      
+      // その他のエラーの場合はモックデータを使用
+      return generateMockSuggestions(answers, sessionId);
+    }
+  }
+
+  // 全てのリトライが失敗した場合はモックデータを使用
+  console.log('All API attempts failed, using mock data');
+  return generateMockSuggestions(answers, sessionId);
+}
 
 /**
  * モックデータを生成する（開発用）
  * APIキーがない場合やテスト時に使用
  */
-export const generateMockSuggestions = (
-  answers: UserAnswer[],
+export function generateMockSuggestions(
+  answers: Question[],
   sessionId: string
-): FoodSuggestion[] => {
-  const timestamp = Date.now();
-  
-  return [
+): FoodSuggestion[] {
+  // 多様なモックデータを用意
+  const mockFoodSuggestions = [
     {
       id: uuidv4(),
-      name: '和風きのこパスタ',
-      description: 'しょうゆベースの和風ソースと旨味たっぷりのきのこを使ったパスタです。あっさりした味わいながらも満足感があります。',
-      characteristics: ['和風', 'パスタ', 'きのこ', 'あっさり', '中程度の量'],
+      name: '鯖の味噌煮',
+      description: 'ビタミンDとオメガ3脂肪酸が豊富な鯖を使った伝統的な日本料理です。甘みと旨味のある味噌だれでコクがあり、ご飯との相性抜群です。',
+      characteristics: ['高タンパク質', 'オメガ3脂肪酸', '旨味たっぷり'],
       sessionId,
-      timestamp
+      timestamp: new Date().toISOString()
     },
     {
       id: uuidv4(),
-      name: '鶏胸肉のヘルシーカレー',
-      description: 'タンパク質豊富な鶏胸肉をメインに、野菜もたっぷり入ったヘルシーなカレーです。スパイシーながらも食べやすい味わいです。',
-      characteristics: ['カレー', '鶏胸肉', 'ヘルシー', 'スパイシー', 'タンパク質豊富'],
+      name: '豆腐と野菜の味噌汁',
+      description: '豆腐、わかめ、ねぎなどの具材が入った栄養バランスの良い味噌汁です。朝食にぴったりで、優しい味わいながらも満足感があります。',
+      characteristics: ['低カロリー', '食物繊維', '大豆イソフラボン'],
       sessionId,
-      timestamp
+      timestamp: new Date().toISOString()
     },
     {
       id: uuidv4(),
-      name: '豆腐と野菜のサラダ丼',
-      description: '食物繊維が豊富な野菜と豆腐を組み合わせたさっぱりとした丼ものです。軽く食べたい時におすすめです。',
-      characteristics: ['サラダ', '豆腐', '野菜', 'さっぱり', '食物繊維'],
+      name: '鶏の照り焼き丼',
+      description: '甘辛いソースでコーティングされた鶏肉を新鮮な野菜と一緒にご飯の上に盛り付けた丼ぶりです。食べ応えがありながらもバランスの取れた一品です。',
+      characteristics: ['高タンパク質', '食べ応え', 'エネルギー補給'],
       sessionId,
-      timestamp
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      name: '冷やし茶漬け',
+      description: '夏にぴったりの冷たいお茶をかけて食べる和風のライスサラダです。梅干し、海苔、わさびなどをトッピングし、さっぱりとした口当たりが特徴です。',
+      characteristics: ['さっぱり', '低カロリー', '夏向き'],
+      sessionId,
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      name: '納豆と長芋の山かけ丼',
+      description: '栄養価の高い納豆と長芋をご飯にかけたシンプルながら栄養満点の一品です。消化がよく、朝食やランチにおすすめです。',
+      characteristics: ['発酵食品', '食物繊維豊富', '消化良好'],
+      sessionId,
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      name: '焼きサバの塩おにぎり',
+      description: '焼きサバをほぐして塩と混ぜ、海苔で包んだおにぎりです。香ばしさと魚の旨味が広がり、手軽に魚の栄養を摂取できます。',
+      characteristics: ['持ち運び便利', 'オメガ3脂肪酸', 'シンプル'],
+      sessionId,
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      name: 'きのこの炊き込みご飯',
+      description: 'しいたけ、まいたけ、えのきなどの複数のきのこを使った風味豊かな炊き込みご飯です。食物繊維が豊富で腹持ちがよく、免疫力アップにも役立ちます。',
+      characteristics: ['食物繊維', '低脂肪', 'ビタミンD'],
+      sessionId,
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      name: '鮭と野菜の蒸し料理',
+      description: '鮭と季節の野菜を一緒に蒸した、シンプルながらも素材の味を最大限に引き出した料理です。油をほとんど使わずヘルシーで、タンパク質と野菜をバランスよく摂取できます。',
+      characteristics: ['ヘルシー', '高タンパク質', '低糖質'],
+      sessionId,
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      name: '冷やし中華',
+      description: '冷たい麺に彩り豊かな野菜やハム、ゆで卵をトッピングした夏の定番料理です。さっぱりとした酸味のあるタレで和えて食べる、暑い日にぴったりの一品です。',
+      characteristics: ['冷製', 'さっぱり', '彩り豊か'],
+      sessionId,
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: uuidv4(),
+      name: 'ほうれん草と厚揚げの煮浸し',
+      description: 'ほうれん草と厚揚げを和風だしで優しく煮た、栄養価の高い副菜です。鉄分と植物性タンパク質が豊富で、どんな主食にも合わせやすい一品です。',
+      characteristics: ['鉄分豊富', '植物性タンパク質', '和風'],
+      sessionId,
+      timestamp: new Date().toISOString()
     }
   ];
-}; 
+
+  // モックデータからランダムに3つ選択
+  const shuffled = [...mockFoodSuggestions].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, 3);
+} 

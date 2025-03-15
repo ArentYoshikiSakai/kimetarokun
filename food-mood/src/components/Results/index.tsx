@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Layout, Button, Card, CardGrid } from '@/components/common';
 import { SuggestionCard } from './SuggestionCard';
 import { useApp } from '@/contexts/AppContext';
-import { generateFoodSuggestions } from '@/services/gptService';
+import { generateFoodSuggestions, generateMockSuggestions } from '@/services/gptService';
 import { historyStorage } from '@/utils/storage';
 
 /**
@@ -45,14 +45,32 @@ export default function Results() {
         setIsLoading(true);
         setError(null);
         
-        // APIから提案を取得
+        // APIから提案を取得（エラー時はキャッチして処理）
         const newSuggestions = await generateFoodSuggestions(userAnswers, session.id);
         
-        // AppContextに提案を設定
-        setSuggestions(newSuggestions);
+        if (newSuggestions.length === 0) {
+          // 結果が空の場合はモックデータを使用
+          console.warn('Empty suggestions received, using mock data');
+          const mockData = generateMockSuggestions(userAnswers, session.id);
+          setSuggestions(mockData);
+        } else {
+          // 正常に結果を取得できた場合
+          setSuggestions(newSuggestions);
+        }
       } catch (err) {
-        setError('提案の生成中にエラーが発生しました。もう一度お試しください。');
         console.error('Error generating suggestions:', err);
+        
+        // エラー表示と同時にモックデータで回復
+        setError('提案の生成中にエラーが発生しました。代替データを表示します。');
+        
+        // モックデータを使用
+        const mockData = generateMockSuggestions(userAnswers, session.id);
+        setSuggestions(mockData);
+        
+        // 2秒後にエラーメッセージを消す（ユーザビリティ向上）
+        setTimeout(() => {
+          setError(null);
+        }, 2000);
       } finally {
         setIsLoading(false);
       }
@@ -112,18 +130,13 @@ export default function Results() {
 
           {/* エラー表示 */}
           {error && (
-            <Card className="p-8 text-center bg-red-50 border-red-200">
-              <div className="flex flex-col items-center justify-center">
-                <p className="text-red-600 mb-4">{error}</p>
-                <Button variant="primary" onClick={handleRestart}>
-                  もう一度質問に答える
-                </Button>
-              </div>
-            </Card>
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
+              {error}
+            </div>
           )}
 
           {/* 提案リスト */}
-          {!isLoading && !error && suggestions.length > 0 && (
+          {!isLoading && suggestions.length > 0 && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                 {suggestions.map((suggestion) => (

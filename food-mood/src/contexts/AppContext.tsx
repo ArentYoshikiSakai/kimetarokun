@@ -21,6 +21,8 @@ interface AppContextType {
   session: UserSession;
   // 回答を保存する関数
   saveAnswer: (answer: UserAnswer) => void;
+  // ユーザーの回答リストを設定する関数
+  setUserAnswers: (answers: UserAnswer[]) => void;
   // 次の質問に進む関数
   nextQuestion: () => void;
   // 前の質問に戻る関数
@@ -121,6 +123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     suggestions,
     session,
     saveAnswer,
+    setUserAnswers,
     nextQuestion,
     previousQuestion,
     setSuggestions,

@@ -123,4 +123,12 @@ export const questions: Question[] = [
       { id: 'heavy', text: 'がっつり食べたい' }
     ]
   }
-]; 
+];
+
+/**
+ * デフォルトの質問リストを取得する
+ * @returns 質問リスト
+ */
+export function getDefaultQuestions(): Question[] {
+  return questions;
+} 
