@@ -74,13 +74,18 @@ export default function Questions() {
   const handleOptionSelect = (optionId: string) => {
     if (!currentQuestion) return;
     
+    console.log('handleOptionSelect called:', { optionId, currentQuestion });
+    
     const option = currentQuestion.options.find(o => o.id === optionId);
+    console.log('Found option:', option);
+    
     if (option) {
       const userAnswer: UserAnswer = {
         questionId: currentQuestion.id,
         selectedOptionId: optionId,
         selectedOptionText: option.text
       };
+      console.log('Saving answer:', userAnswer);
       saveAnswer(userAnswer);
     }
   };
@@ -154,6 +159,17 @@ export default function Questions() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [currentQuestionIndex, userAnswers]);
+
+  // コンポーネントの状態をログ出力
+  useEffect(() => {
+    console.log('Questions component state:', {
+      currentQuestionIndex,
+      currentQuestion,
+      userAnswers,
+      isError,
+      errorMessage
+    });
+  }, [currentQuestionIndex, currentQuestion, userAnswers, isError, errorMessage]);
 
   return (
     <Layout>
