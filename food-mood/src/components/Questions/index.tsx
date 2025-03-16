@@ -7,6 +7,7 @@ import { QuestionCard } from './QuestionCard';
 import { useApp } from '@/contexts/AppContext';
 import { getDefaultQuestions } from '@/data/questions';
 import { nanoid } from 'nanoid';
+import { Question, UserAnswer } from '@/types';
 
 /**
  * 質問画面のメインコンポーネント
@@ -17,7 +18,8 @@ export default function Questions() {
     session, 
     userAnswers, 
     setUserAnswers,
-    resetSession 
+    resetSession,
+    saveAnswer 
   } = useApp();
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -34,32 +36,28 @@ export default function Questions() {
   // 回答の進捗率を計算
   const progress = Math.round(((currentQuestionIndex) / totalQuestions) * 100);
 
-  // コンポーネントマウント時に回答が既にある場合、復元
+  // コンポーネントマウント時の初期化
   useEffect(() => {
-    // 回答データがなければ初期化
-    if (userAnswers.length === 0) {
-      console.log('Initializing questions');
-      // 質問に対応する回答オブジェクトを生成
-      const initialAnswers = questions.map(question => ({
-        ...question,
-        answer: '',
-        id: nanoid()
-      }));
-      setUserAnswers(initialAnswers);
-    } else {
-      // 回答データが既にある場合、既に回答した質問にスキップ
-      const answeredCount = userAnswers.filter(q => q.answer && q.answer.trim() !== '').length;
-      if (answeredCount > 0 && currentQuestionIndex === 0) {
-        setCurrentQuestionIndex(Math.min(answeredCount, totalQuestions - 1));
-      }
+    if (userAnswers.length === 0 && questions.length > 0) {
+      console.log('Initializing user answers');
+      // 初期化が必要な場合は何もしない（AppContextが処理する）
     }
-  }, [questions, userAnswers, setUserAnswers, currentQuestionIndex, totalQuestions]);
+  }, [questions, userAnswers]);
 
   // 現在の質問の回答を取得
   const getCurrentAnswer = () => {
-    const questionId = currentQuestion.id;
-    const answer = userAnswers.find(a => a.id === questionId);
-    return answer ? answer.answer : '';
+    if (!currentQuestion) return '';
+    
+    const answer = userAnswers.find(a => a.questionId === currentQuestion.id);
+    return answer ? answer.selectedOptionText : '';
+  };
+
+  // 現在の質問の選択されたオプションIDを取得
+  const getCurrentSelectedOptionId = () => {
+    if (!currentQuestion) return null;
+    
+    const answer = userAnswers.find(a => a.questionId === currentQuestion.id);
+    return answer ? answer.selectedOptionId : null;
   };
 
   // 回答が有効かチェック
@@ -72,13 +70,31 @@ export default function Questions() {
     return true;
   };
 
-  // 回答の保存
-  const saveAnswer = (questionId: string, answer: string) => {
-    setUserAnswers(
-      userAnswers.map(q =>
-        q.id === questionId ? { ...q, answer } : q
-      )
-    );
+  // 選択肢が選択されたときの処理
+  const handleOptionSelect = (optionId: string) => {
+    if (!currentQuestion) return;
+    
+    const option = currentQuestion.options.find(o => o.id === optionId);
+    if (option) {
+      const userAnswer: UserAnswer = {
+        questionId: currentQuestion.id,
+        selectedOptionId: optionId,
+        selectedOptionText: option.text
+      };
+      saveAnswer(userAnswer);
+    }
+  };
+
+  // テキスト回答が変更されたときの処理
+  const handleAnswerChange = (text: string) => {
+    if (!currentQuestion) return;
+    
+    const userAnswer: UserAnswer = {
+      questionId: currentQuestion.id,
+      selectedOptionId: '', // テキスト入力の場合は空
+      selectedOptionText: text
+    };
+    saveAnswer(userAnswer);
   };
 
   // 次の質問へ
@@ -155,7 +171,9 @@ export default function Questions() {
               key={currentQuestion.id}
               question={currentQuestion}
               answer={getCurrentAnswer()}
-              onAnswerChange={(answer) => saveAnswer(currentQuestion.id, answer)}
+              selectedOptionId={getCurrentSelectedOptionId()}
+              onSelectOption={handleOptionSelect}
+              onAnswerChange={handleAnswerChange}
               isError={isError}
               errorMessage={errorMessage}
             />
