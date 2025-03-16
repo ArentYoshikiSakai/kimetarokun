@@ -1,9 +1,8 @@
 'use client';
 
-import { UserAnswer, FoodSuggestion } from '../types';
+import { UserAnswer, FoodSuggestion, Question } from '../types';
 import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
-import { Question } from '@/types/Question';
 
 // モックデータのみを使用するモード（開発中や課金制限時に使用）
 const useMockOnly = true;
@@ -151,7 +150,7 @@ const generateCacheKey = (answers: UserAnswer[]): string => {
  * 食事提案を生成する
  */
 export async function generateFoodSuggestions(
-  answers: Question[],
+  answers: UserAnswer[],
   sessionId: string
 ): Promise<FoodSuggestion[]> {
   // 回答がなければモックデータを返す
@@ -264,7 +263,7 @@ export async function generateFoodSuggestions(
  * APIキーがない場合やテスト時に使用
  */
 export function generateMockSuggestions(
-  answers: Question[],
+  answers: UserAnswer[],
   sessionId: string
 ): FoodSuggestion[] {
   // 多様なモックデータを用意
@@ -275,7 +274,7 @@ export function generateMockSuggestions(
       description: 'ビタミンDとオメガ3脂肪酸が豊富な鯖を使った伝統的な日本料理です。甘みと旨味のある味噌だれでコクがあり、ご飯との相性抜群です。',
       characteristics: ['高タンパク質', 'オメガ3脂肪酸', '旨味たっぷり'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -283,7 +282,7 @@ export function generateMockSuggestions(
       description: '豆腐、わかめ、ねぎなどの具材が入った栄養バランスの良い味噌汁です。朝食にぴったりで、優しい味わいながらも満足感があります。',
       characteristics: ['低カロリー', '食物繊維', '大豆イソフラボン'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -291,7 +290,7 @@ export function generateMockSuggestions(
       description: '甘辛いソースでコーティングされた鶏肉を新鮮な野菜と一緒にご飯の上に盛り付けた丼ぶりです。食べ応えがありながらもバランスの取れた一品です。',
       characteristics: ['高タンパク質', '食べ応え', 'エネルギー補給'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -299,7 +298,7 @@ export function generateMockSuggestions(
       description: '夏にぴったりの冷たいお茶をかけて食べる和風のライスサラダです。梅干し、海苔、わさびなどをトッピングし、さっぱりとした口当たりが特徴です。',
       characteristics: ['さっぱり', '低カロリー', '夏向き'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -307,7 +306,7 @@ export function generateMockSuggestions(
       description: '栄養価の高い納豆と長芋をご飯にかけたシンプルながら栄養満点の一品です。消化がよく、朝食やランチにおすすめです。',
       characteristics: ['発酵食品', '食物繊維豊富', '消化良好'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -315,7 +314,7 @@ export function generateMockSuggestions(
       description: '焼きサバをほぐして塩と混ぜ、海苔で包んだおにぎりです。香ばしさと魚の旨味が広がり、手軽に魚の栄養を摂取できます。',
       characteristics: ['持ち運び便利', 'オメガ3脂肪酸', 'シンプル'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -323,7 +322,7 @@ export function generateMockSuggestions(
       description: 'しいたけ、まいたけ、えのきなどの複数のきのこを使った風味豊かな炊き込みご飯です。食物繊維が豊富で腹持ちがよく、免疫力アップにも役立ちます。',
       characteristics: ['食物繊維', '低脂肪', 'ビタミンD'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -331,7 +330,7 @@ export function generateMockSuggestions(
       description: '鮭と季節の野菜を一緒に蒸した、シンプルながらも素材の味を最大限に引き出した料理です。油をほとんど使わずヘルシーで、タンパク質と野菜をバランスよく摂取できます。',
       characteristics: ['ヘルシー', '高タンパク質', '低糖質'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -339,7 +338,7 @@ export function generateMockSuggestions(
       description: '冷たい麺に彩り豊かな野菜やハム、ゆで卵をトッピングした夏の定番料理です。さっぱりとした酸味のあるタレで和えて食べる、暑い日にぴったりの一品です。',
       characteristics: ['冷製', 'さっぱり', '彩り豊か'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     },
     {
       id: uuidv4(),
@@ -347,7 +346,7 @@ export function generateMockSuggestions(
       description: 'ほうれん草と厚揚げを和風だしで優しく煮た、栄養価の高い副菜です。鉄分と植物性タンパク質が豊富で、どんな主食にも合わせやすい一品です。',
       characteristics: ['鉄分豊富', '植物性タンパク質', '和風'],
       sessionId,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     }
   ];
 
